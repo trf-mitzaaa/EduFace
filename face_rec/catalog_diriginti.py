@@ -3,6 +3,9 @@ from tkinter import ttk, messagebox
 import pymysql
 from datetime import datetime
 import os
+import bcrypt
+from admin import hash_password, verify_password
+
 
 def connect_db():
     return pymysql.connect(
@@ -13,27 +16,34 @@ def connect_db():
     )
 
 def login():
-    username = username_entry.get()
-    password = password_entry.get()
+    username = username_entry.get().strip()
+    password = password_entry.get().strip()
 
     db = connect_db()
     cursor = db.cursor()
+    
+    # First get the user and hashed password
     cursor.execute("""
-         SELECT h.id, h.class 
-         FROM users u
-         JOIN head_teachers h ON u.id = h.id
-         WHERE u.username = %s AND u.password = %s
-    """, (username, password))
+                   SELECT u.id, u.password, h.class
+                   FROM users u
+                            JOIN user_roles ur ON u.id = ur.user_id
+                            JOIN head_teachers h ON u.id = h.id
+                   WHERE u.username = %s
+                     AND ur.role = 'head_teacher'
+                   """, (username,))
+
     result = cursor.fetchone()
-    if not result:
+    
+    if not result or not verify_password(password, result[1]):
         db.close()
         messagebox.showerror("Autentificare eșuată", "Credențiale invalide pentru diriginte.")
         return
 
-    teacher_id, class_id = result
+    teacher_id, _, class_id = result
     cursor.execute("SELECT name FROM classes WHERE id = %s", (class_id,))
     class_row = cursor.fetchone()
     db.close()
+    
     class_name = class_row[0] if class_row else ""
     messagebox.showinfo("Autentificare reușită", f"Bine ai venit, {username}!")
     root.destroy()

@@ -3,7 +3,20 @@ from tkinter import ttk, messagebox, filedialog
 import pymysql
 import os
 import shutil
-from PIL import Image, ImageTk
+import bcrypt
+
+def hash_password(plain_password):
+    """Hash a password using bcrypt"""
+    salt = bcrypt.gensalt()
+    hashed = bcrypt.hashpw(plain_password.encode('utf-8'), salt)
+    return hashed.decode('utf-8')
+
+def verify_password(plain_password, hashed_password):
+    """Verify a password against its hash"""
+    return bcrypt.checkpw(
+        plain_password.encode('utf-8'),
+        hashed_password.encode('utf-8')
+    )
 
 # === CONFIG ===
 DB_HOST = "localhost"
@@ -19,54 +32,150 @@ def connect_db():
 def login():
     username = username_entry.get().strip()
     password = password_entry.get().strip()
+
+    if not username or not password:
+        messagebox.showerror("Error", "Te rog completează ambele câmpuri")
+        return
+
     db = connect_db()
     cursor = db.cursor()
-    cursor.execute("SELECT id FROM users WHERE username=%s AND password=%s AND role='admin'", (username, password))
-    result = cursor.fetchone()
-    db.close()
-    if result:
-        messagebox.showinfo("Login Reusit", f"Bine ai venit, {username}")
-        root.destroy()
-        open_dashboard()
-    else:
-        messagebox.showerror("Login Esuat", "Credentiale invalide sau nu exista contul.")
+
+    try:
+        # Check if user exists and is an admin using the user_roles table
+        cursor.execute("""
+            SELECT u.id, u.password 
+            FROM users u
+            JOIN user_roles ur ON u.id = ur.user_id
+            WHERE u.username = %s AND ur.role = 'admin'
+        """, (username,))
+        result = cursor.fetchone()
+
+        if not result:
+            messagebox.showerror("Login Eșuat", "Credențiale invalide sau nu există contul.")
+            return
+
+        user_id, stored_password = result
+
+        # If the stored password is not yet hashed (legacy password)
+        if len(stored_password) < 50:  # Bcrypt hashes are ~60 chars
+            if password == stored_password:
+                # Update the password to hashed version
+                hashed_password = hash_password(password)
+                cursor.execute("UPDATE users SET password=%s WHERE id=%s",
+                             (hashed_password, user_id))
+                db.commit()
+                messagebox.showinfo("Login Reușit", f"Bine ai venit, {username}")
+                root.destroy()
+                open_dashboard()
+            else:
+                messagebox.showerror("Login Eșuat", "Credențiale invalide.")
+        else:
+            # Password is already hashed, verify it
+            if verify_password(password, stored_password):
+                messagebox.showinfo("Login Reușit", f"Bine ai venit, {username}")
+                root.destroy()
+                open_dashboard()
+            else:
+                messagebox.showerror("Login Eșuat", "Credențiale invalide.")
+
+    except Exception as e:
+        messagebox.showerror("Error", f"Eroare la conectarea cu baza de date: {str(e)}")
+    finally:
+        db.close()
 
 # --- Admin Dashboard ---
 def open_dashboard():
+    def toggle_frame(frame, arrow_label):
+        if frame.winfo_ismapped():
+            frame.pack_forget()
+            arrow_label.config(text="⯈")
+        else:
+            frame.pack(fill=tk.X, pady=(5, 10))
+            arrow_label.config(text="⯆")
+
     dash = tk.Tk()
     dash.title("Meniu Admin")
-    dash.geometry("450x940")
+    dash.geometry("900x700")
     dash.configure(bg="#f6f8fa")
-    tk.Label(dash, text="Meniu Admin", font=("Segoe UI", 18, "bold"), bg="#324e7b", fg="white", pady=12).pack(fill=tk.X)
-    btn_frame = tk.Frame(dash, bg="#f6f8fa")
-    btn_frame.pack(pady=22)
 
-    style = {
+    tk.Label(
+        dash, text="Meniu Admin", font=("Segoe UI", 18, "bold"),
+        bg="#324e7b", fg="white", pady=12
+    ).pack(fill=tk.X)
+
+    # === Button style
+    btn_style = {
         "font": ("Segoe UI", 11, "bold"),
         "bg": "#3d5a80",
         "fg": "white",
         "activebackground": "#29354a",
         "activeforeground": "white",
-        "width": 26,
-        "height": 2,
         "bd": 0,
         "relief": "groove",
         "cursor": "hand2"
     }
-    tk.Button(btn_frame, text="Adaugă Elev", command=add_student_ui, **style).pack(pady=5)
-    tk.Button(btn_frame, text="Adaugă Profesor", command=add_teacher_ui, **style).pack(pady=5)
-    tk.Button(btn_frame, text="Adaugă Diriginte", command=add_head_teacher_ui, **style).pack(pady=5)
-    tk.Button(btn_frame, text="Adaugă Clasă", command=add_class_ui, **style).pack(pady=5)
-    tk.Button(btn_frame, text="Adaugă Materie", command=add_subject_ui, **style).pack(pady=5)
-    tk.Button(btn_frame, text="Adaugă materie/clasă profesor", command=assign_teacher_ui, **style).pack(pady=5)
-    tk.Button(btn_frame, text="Șterge Materie", command=remove_subject_ui, **style).pack(pady=5)
-    tk.Button(btn_frame, text="Șterge Notă", command=delete_grade_ui, **style).pack(pady=5)
-    tk.Button(btn_frame, text="Șterge Absență", command=delete_attendance_ui, **style).pack(pady=5)
-    tk.Button(btn_frame, text="Vizualizează Catalog", command=view_class_marksheet_ui, **style).pack(pady=5)
-    tk.Button(btn_frame, text="Promovează Elevii", command=promote_all_students, **style).pack(pady=18)
-    tk.Button(btn_frame, text="Ieșire", command=dash.destroy, **style).pack(pady=5)
-    dash.mainloop()
 
+    # === Main content frame
+    content_frame = tk.Frame(dash, bg="#f6f8fa")
+    content_frame.pack(fill=tk.BOTH, expand=True, padx=20, pady=10)
+
+    # === Three columns
+    utilizatori_col = tk.Frame(content_frame, bg="#f6f8fa")
+    management_col = tk.Frame(content_frame, bg="#f6f8fa")
+    elevi_col = tk.Frame(content_frame, bg="#f6f8fa")
+
+    utilizatori_col.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, padx=10)
+    management_col.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, padx=10)
+    elevi_col.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, padx=10)
+
+    def add_section(parent, title, buttons):
+        frame = tk.Frame(parent, bg="#f6f8fa")
+
+        # Create the arrow label separately to toggle it later
+        arrow = tk.Label(frame, text="⯈", font=("Segoe UI", 12), bg="#3d5a80", fg="white")
+        arrow.pack(side=tk.LEFT)
+
+        toggle_btn = tk.Button(
+            frame, text=title, **btn_style,
+            command=lambda: toggle_frame(button_frame, arrow),
+            width=25, height=2
+        )
+        toggle_btn.pack(side=tk.LEFT, fill=tk.X, expand=True)
+        frame.pack(pady=(0, 5), fill=tk.X)
+
+        # Sub-button container
+        button_frame = tk.Frame(parent, bg="#f6f8fa")
+
+        for text, cmd in buttons:
+            tk.Button(button_frame, text=text, command=cmd, **btn_style, width=25, height=2).pack(pady=4)
+
+    # === Populate columns
+    add_section(utilizatori_col, "Utilizatori", [
+        ("Adaugă Elev", add_student_ui),
+        ("Adaugă Profesor", add_teacher_ui),
+        ("Adaugă Diriginte", add_head_teacher_ui),
+    ])
+
+    add_section(management_col, "Management Clasă", [
+        ("Adaugă Clasă", add_class_ui),
+        ("Adaugă Materie", add_subject_ui),
+        ("Adaugă materie/clasă profesor", assign_teacher_ui),
+        ("Șterge Materie", remove_subject_ui),
+    ])
+
+    add_section(elevi_col, "Elevi", [
+        ("Șterge Notă", delete_grade_ui),
+        ("Șterge Absență", delete_attendance_ui),
+        ("Vizualizează Catalog", view_class_marksheet_ui),
+        ("Promovează Elevii", promote_all_students),
+    ])
+
+    # === Exit Button at Bottom
+    exit_frame = tk.Frame(dash, bg="#f6f8fa")
+    exit_frame.pack(fill=tk.X, side=tk.BOTTOM, pady=20)
+    tk.Button(exit_frame, text="Ieșire", command=dash.destroy, **btn_style, width=30, height=2).pack()
+
+    dash.mainloop()
 
 # --- Add Student ---
 def add_student_ui():
@@ -92,12 +201,18 @@ def add_student_ui():
                 messagebox.showerror("Eroare", "Toate câmpurile sunt obligatorii.")
                 return
 
-            # Adaugă utilizator în tabelul users cu rol student
-            cursor.execute("INSERT INTO users (username, password, role) VALUES (%s, %s, 'student')",
-                           (username_val, password_val))
+            # Hash the password before storing
+            hashed_password = hash_password(password_val)
+
+            # Insert into users WITHOUT role!
+            cursor.execute("INSERT INTO users (username, password) VALUES (%s, %s)",
+                           (username_val, hashed_password))
             user_id = cursor.lastrowid
 
-            # Preia class_id
+            # Add the student role in user_roles
+            cursor.execute("INSERT INTO user_roles (user_id, role) VALUES (%s, 'student')", (user_id,))
+
+            # Get class_id
             cursor.execute("SELECT id FROM classes WHERE name = %s", (selected_class,))
             row = cursor.fetchone()
             if not row:
@@ -116,14 +231,14 @@ def add_student_ui():
             else:
                 db_photo = None
 
-            # Adaugă elevul (inclusiv user_id)
+            # Add student (with user_id)
             cursor.execute(
                 "INSERT INTO students (first_name, last_name, class_id, photo, user_id) VALUES (%s, %s, %s, %s, %s)",
                 (first, last, class_id, db_photo, user_id)
             )
             student_id = cursor.lastrowid
 
-            # Adaugă în attendance_current ca absent (0)
+            # Add to attendance_current as absent (0)
             cursor.execute(
                 "INSERT INTO attendance_current (student_id, present) VALUES (%s, 0)",
                 (student_id,)
@@ -134,6 +249,7 @@ def add_student_ui():
             win.destroy()
         except Exception as e:
             messagebox.showerror("Eroare", str(e))
+            db.rollback()
         db.close()
 
     win = tk.Toplevel()
@@ -184,17 +300,21 @@ def add_teacher_ui():
         assign_win = tk.Toplevel(win)
         assign_win.title("Atribuire Clasă și Materie")
         tk.Label(assign_win, text="Clasă").grid(row=0, column=0, padx=6, pady=6)
-        class_combo = ttk.Combobox(assign_win, state="readonly", values=[f"{cid} - {cname}" for cid, cname in class_choices])
+        class_combo = ttk.Combobox(assign_win, state="readonly",
+                                   values=[f"{cid} - {cname}" for cid, cname in class_choices])
         class_combo.grid(row=0, column=1, padx=6, pady=6)
         tk.Label(assign_win, text="Materie").grid(row=1, column=0, padx=6, pady=6)
-        subject_combo = ttk.Combobox(assign_win, state="readonly", values=[f"{sid} - {sname}" for sid, sname in subject_choices])
+        subject_combo = ttk.Combobox(assign_win, state="readonly",
+                                     values=[f"{sid} - {sname}" for sid, sname in subject_choices])
         subject_combo.grid(row=1, column=1, padx=6, pady=6)
+
         def confirm():
             if not class_combo.get() or not subject_combo.get():
                 messagebox.showerror("Eroare", "Alegeți clasa și materia.")
                 return
             assignments.append((class_combo.get(), subject_combo.get()))
             assign_win.destroy()
+
         tk.Button(assign_win, text="Adaugă Atribuire", command=confirm).grid(row=2, columnspan=2, pady=10)
 
     def submit():
@@ -208,17 +328,29 @@ def add_teacher_ui():
             if not (username_val and password_val and first and last):
                 messagebox.showerror("Eroare", "Completați toate câmpurile.")
                 return
-            cursor.execute("INSERT INTO users (username, password, role) VALUES (%s, %s, 'teacher')",
-                           (username_val, password_val))
+
+            # Hash the password before storing
+            hashed_password = hash_password(password_val)
+
+            # Insert into users WITHOUT role!
+            cursor.execute("INSERT INTO users (username, password) VALUES (%s, %s)",
+                           (username_val, hashed_password))
             user_id = cursor.lastrowid
+
+            # Add the teacher role in user_roles
+            cursor.execute("INSERT INTO user_roles (user_id, role) VALUES (%s, 'teacher')", (user_id,))
+
+            # Insert into teachers table
             cursor.execute(
                 "INSERT INTO teachers (id, first_name, last_name) VALUES (%s, %s, %s)",
                 (user_id, first, last)
             )
-            # Salvează atribuiri
+
+            # Save assignments
             for class_val, subject_val in assignments:
-                class_id = int(class_val.split(" - ")[0])
-                subject_id = int(subject_val.split(" - ")[0])
+                # Extract just the ID from the string (everything before the ' - ')
+                class_id = class_val.split(" - ")[0]
+                subject_id = subject_val.split(" - ")[0]
                 cursor.execute(
                     "INSERT INTO teacher_assignments (teacher_id, class_id, subject_id) VALUES (%s, %s, %s)",
                     (user_id, class_id, subject_id)
@@ -228,21 +360,28 @@ def add_teacher_ui():
             win.destroy()
         except Exception as e:
             messagebox.showerror("Eroare", str(e))
-        db.close()
+            db.rollback()
+        finally:
+            cursor.close()
+            db.close()
 
     win = tk.Toplevel()
     win.title("Adaugă Profesor")
     win.geometry("410x310")
     win.configure(bg="#f0f6fa")
+
     tk.Label(win, text="Utilizator", bg="#f0f6fa").grid(row=0, column=0, padx=6, pady=8, sticky="e")
     username = tk.Entry(win)
     username.grid(row=0, column=1, padx=6, pady=8)
+
     tk.Label(win, text="Parolă", bg="#f0f6fa").grid(row=1, column=0, padx=6, pady=8, sticky="e")
-    password = tk.Entry(win)
+    password = tk.Entry(win, show="*")  # Hide password with asterisks
     password.grid(row=1, column=1, padx=6, pady=8)
+
     tk.Label(win, text="Prenume", bg="#f0f6fa").grid(row=2, column=0, padx=6, pady=8, sticky="e")
     first_name = tk.Entry(win)
     first_name.grid(row=2, column=1, padx=6, pady=8)
+
     tk.Label(win, text="Nume", bg="#f0f6fa").grid(row=3, column=0, padx=6, pady=8, sticky="e")
     last_name = tk.Entry(win)
     last_name.grid(row=3, column=1, padx=6, pady=8)
@@ -263,29 +402,69 @@ def add_head_teacher_ui():
             password_val = password.get().strip()
             first = first_name.get().strip()
             last = last_name.get().strip()
-            assigned_class = class_combo.get()
-            if not (username_val and password_val and first and last and assigned_class):
+            class_val = class_combo.get()
+            # This line splits "6 - 9d" into ["6", "9d"] and takes "6"
+            class_id = class_val.split(" - ")[0]
+
+            if not (username_val and password_val and first and last and class_val):
                 messagebox.showerror("Eroare", "Completați toate câmpurile.")
                 return
-            cursor.execute("INSERT INTO users (username, password, role) VALUES (%s, %s, 'head_teacher')",
-                           (username_val, password_val))
-            user_id = cursor.lastrowid
-            cursor.execute("SELECT id FROM classes WHERE name=%s", (assigned_class,))
-            row = cursor.fetchone()
-            if not row:
-                messagebox.showerror("Eroare", "Clasa nu a fost găsită.")
-                return
-            class_id = row[0]
-            cursor.execute(
-                "INSERT INTO head_teachers (id, first_name, last_name, class) VALUES (%s, %s, %s, %s)",
-                (user_id, first, last, class_id)
-            )
+
+            # Check if user already exists
+            cursor.execute("SELECT id FROM users WHERE username = %s", (username_val,))
+            existing_user = cursor.fetchone()
+
+            if existing_user:
+                # User exists, check if they're a teacher
+                user_id = existing_user[0]
+                cursor.execute("SELECT role FROM user_roles WHERE user_id = %s", (user_id,))
+                roles = [r[0] for r in cursor.fetchall()]
+
+                if 'head_teacher' in roles:
+                    messagebox.showerror("Eroare", "Acest utilizator este deja diriginte.")
+                    return
+
+                # Add head_teacher role
+                cursor.execute("INSERT INTO user_roles (user_id, role) VALUES (%s, 'head_teacher')",
+                               (user_id,))
+
+                # Extract class ID from the combo selection
+                class_id = class_val.split(" - ")[0]
+
+                # Add to head_teachers table
+                cursor.execute(
+                    "INSERT INTO head_teachers (id, first_name, last_name, class) VALUES (%s, %s, %s, %s)",
+                    (user_id, first, last, class_id)
+                )
+            else:
+                # Create new user
+                hashed_password = hash_password(password_val)
+                cursor.execute("INSERT INTO users (username, password) VALUES (%s, %s)",
+                               (username_val, hashed_password))
+                user_id = cursor.lastrowid
+
+                # Add head_teacher role
+                cursor.execute("INSERT INTO user_roles (user_id, role) VALUES (%s, 'head_teacher')",
+                               (user_id,))
+
+                # Extract class ID from the combo selection
+                class_id = class_val.split(" - ")[0]
+
+                # Add to head_teachers table
+                cursor.execute(
+                    "INSERT INTO head_teachers (id, first_name, last_name, class) VALUES (%s, %s, %s, %s)",
+                    (user_id, first, last, class_id)
+                )
+
             db.commit()
-            messagebox.showinfo("Succes", "Dirigintele a fost adăugat.")
+            messagebox.showinfo("Succes", "Dirigintele a fost adăugat!")
             win.destroy()
         except Exception as e:
             messagebox.showerror("Eroare", str(e))
-        db.close()
+            db.rollback()
+        finally:
+            cursor.close()
+            db.close()
 
     win = tk.Toplevel()
     win.title("Adaugă Diriginte")
@@ -308,8 +487,8 @@ def add_head_teacher_ui():
     class_combo.grid(row=4, column=1, padx=6, pady=8)
     db = connect_db()
     cursor = db.cursor()
-    cursor.execute("SELECT name FROM classes ORDER BY name")
-    class_combo['values'] = [row[0] for row in cursor.fetchall()]
+    cursor.execute("SELECT id, name FROM classes ORDER BY name")
+    class_combo['values'] = [f"{row[0]} - {row[1]}" for row in cursor.fetchall()]
     db.close()
     tk.Button(win, text="Adaugă", command=submit, bg="#264653", fg="white").grid(row=5, columnspan=2, pady=15)
     
@@ -741,16 +920,18 @@ def promote_all_students():
 
 
 # --- Fereastră de autentificare ---
-root = tk.Tk()
-root.title("Autentificare Administrator")
-root.geometry("520x280")
-root.configure(bg="#f0f6fa")
-tk.Label(root, text="Autentificare Administrator", font=("Segoe UI",16,"bold"), bg="#324e7b", fg="white", pady=12).pack(fill=tk.X)
-tk.Label(root, text="Utilizator", font=("Segoe UI",11), bg="#f0f6fa").pack(pady=8)
-username_entry = tk.Entry(root, font=("Segoe UI",11))
-username_entry.pack()
-tk.Label(root, text="Parolă", font=("Segoe UI",11), bg="#f0f6fa").pack(pady=8)
-password_entry = tk.Entry(root, show='*', font=("Segoe UI",11))
-password_entry.pack()
-tk.Button(root, text="Autentificare", command=login, bg="#264653", fg="white", font=("Segoe UI",11,"bold"), width=17).pack(pady=22)
-root.mainloop()
+if __name__ == "__main__":
+    root = tk.Tk()
+    root.title("Autentificare Administrator")
+    root.geometry("520x280")
+    root.configure(bg="#f0f6fa")
+    tk.Label(root, text="Autentificare Administrator", font=("Segoe UI",16,"bold"), bg="#324e7b", fg="white", pady=12).pack(fill=tk.X)
+    tk.Label(root, text="Utilizator", font=("Segoe UI",11), bg="#f0f6fa").pack(pady=8)
+    username_entry = tk.Entry(root, font=("Segoe UI",11))
+    username_entry.pack()
+    tk.Label(root, text="Parolă", font=("Segoe UI",11), bg="#f0f6fa").pack(pady=8)
+    password_entry = tk.Entry(root, show='*', font=("Segoe UI",11))
+    password_entry.pack()
+    tk.Button(root, text="Autentificare", command=login, bg="#264653", fg="white", font=("Segoe UI",11,"bold"), width=17).pack(pady=22)
+    root.mainloop()
+

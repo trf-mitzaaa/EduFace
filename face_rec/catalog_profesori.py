@@ -4,6 +4,8 @@ from datetime import datetime
 import pymysql
 import os
 from PIL import Image, ImageTk, ImageOps
+import bcrypt
+from admin import hash_password, verify_password
 
 DB_HOST = "localhost"
 DB_USER = "root"
@@ -14,36 +16,42 @@ PHOTO_FOLDER = "student_photos"
 def connect_db():
     return pymysql.connect(host=DB_HOST, user=DB_USER, password=DB_PASS, database=DB_NAME)
 
+
 def login():
     global current_teacher_id, assignments, teacher_fullname
-    user = username_entry.get().strip()
-    pwd = password_entry.get().strip()
+    username = username_entry.get().strip()
+    password = password_entry.get().strip()
     db = connect_db()
     cur = db.cursor()
-    # Căutare profesor după autentificare
+
+    # First get the user and hashed password
     cur.execute("""
-        SELECT u.id, t.first_name, t.last_name
-        FROM users u
-        JOIN teachers t ON u.id = t.id
-        WHERE u.username=%s AND u.password=%s AND u.role='teacher'
-    """, (user, pwd))
+                SELECT u.id, u.password, t.first_name, t.last_name
+                FROM users u
+                         JOIN user_roles ur ON u.id = ur.user_id
+                         JOIN teachers t ON u.id = t.id
+                WHERE u.username = %s
+                  AND ur.role = 'teacher'
+                """, (username,))
     row = cur.fetchone()
-    if not row:
+
+    if not row or not verify_password(password, row[1]):
         messagebox.showerror("Autentificare eșuată", "Credențiale incorecte sau nu sunteți profesor.")
         db.close()
         return
-    current_teacher_id, first_name, last_name = row
+
+    current_teacher_id, _, first_name, last_name = row
     teacher_fullname = f"{first_name} {last_name}"
 
-    # Toate (class_id, class_name, subject_id, subject_name) pentru acest profesor
+    # Get assignments
     cur.execute("""
-        SELECT ta.class_id, c.name, ta.subject_id, s.name
-        FROM teacher_assignments ta
-        JOIN classes c ON ta.class_id = c.id
-        JOIN subjects s ON ta.subject_id = s.id
-        WHERE ta.teacher_id = %s
-        ORDER BY c.name, s.name
-    """, (current_teacher_id,))
+                SELECT ta.class_id, c.name, ta.subject_id, s.name
+                FROM teacher_assignments ta
+                         JOIN classes c ON ta.class_id = c.id
+                         JOIN subjects s ON ta.subject_id = s.id
+                WHERE ta.teacher_id = %s
+                ORDER BY c.name, s.name
+                """, (current_teacher_id,))
     assignments = cur.fetchall()
     db.close()
     root.destroy()

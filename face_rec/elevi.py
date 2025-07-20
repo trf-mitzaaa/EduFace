@@ -1,6 +1,8 @@
 import tkinter as tk
 from tkinter import ttk, messagebox
 import pymysql
+import bcrypt
+from admin import hash_password, verify_password
 
 DB_HOST = "localhost"
 DB_USER = "root"
@@ -10,27 +12,41 @@ DB_NAME = "school"
 def connect_db():
     return pymysql.connect(host=DB_HOST, user=DB_USER, password=DB_PASS, database=DB_NAME)
 
+
 def login():
     username = username_entry.get().strip()
     password = password_entry.get().strip()
     db = connect_db()
     cur = db.cursor()
-    cur.execute("SELECT id FROM users WHERE username=%s AND password=%s AND role='student'", (username, password))
+
+    # First get the hashed password from database
+    cur.execute("""
+                SELECT u.id, u.password
+                FROM users u
+                         JOIN user_roles ur ON u.id = ur.user_id
+                WHERE u.username = %s
+                  AND ur.role = 'student'
+                """, (username,))
     user_row = cur.fetchone()
-    if not user_row:
+
+    if not user_row or not verify_password(password, user_row[1]):
         messagebox.showerror("Autentificare eșuată", "Credențiale invalide sau nu sunteți elev.")
         db.close()
         return
+
     user_id = user_row[0]
     cur.execute("SELECT id, first_name, last_name FROM students WHERE user_id=%s", (user_id,))
     student_row = cur.fetchone()
     db.close()
+
     if not student_row:
         messagebox.showerror("Autentificare eșuată", "Acest cont nu este legat de niciun elev.")
         return
+
     student_id, first, last = student_row
     root.destroy()
     open_dashboard(student_id, f"{first} {last}")
+
 
 def open_dashboard(student_id, student_name):
     dash = tk.Tk()
