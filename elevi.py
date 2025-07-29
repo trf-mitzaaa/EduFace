@@ -54,20 +54,20 @@ def login():
 def open_dashboard(student_id, student_name):
     dash = tk.Tk()
     dash.title("Panou Elev")
-    dash.geometry("950x650")
+    dash.geometry("950x700")
     dash.configure(bg="#f6f8fa")
 
-    # --- Welcome & Tabs ---
+    # Welcome + Tabs
     tk.Label(dash, text=f"Bine ai venit, {student_name}", font=("Segoe UI", 16, "bold"),
              bg="#344675", fg="white", pady=10).pack(fill=tk.X)
     tab_control = ttk.Notebook(dash)
     marks_tab = tk.Frame(tab_control, bg="#f6f8fa")
-    att_tab   = tk.Frame(tab_control, bg="#f6f8fa")
+    att_tab = tk.Frame(tab_control, bg="#f6f8fa")
     tab_control.add(marks_tab, text="Note")
     tab_control.add(att_tab, text="Absențe")
     tab_control.pack(expand=1, fill="both", padx=10, pady=10)
 
-    # --- Action Buttons ---
+    # Action Buttons
     tk.Button(dash, text="Deschide Notificări", bg="#2a6786", fg="white",
               font=("Segoe UI", 11, "bold"),
               command=lambda: show_notifications_window(student_id)).pack(pady=(4, 10))
@@ -78,7 +78,7 @@ def open_dashboard(student_id, student_name):
               font=("Segoe UI", 11, "bold"),
               command=lambda: scan_student_status(student_id)).pack(pady=(4, 10))
 
-    # === Dropdown de filtrare materii ===
+    # Materie filter
     db = connect_db(); cur = db.cursor()
     cur.execute("SELECT DISTINCT subject FROM grades WHERE student_id = %s", (student_id,))
     materii = [row[0] for row in cur.fetchall()]
@@ -88,45 +88,45 @@ def open_dashboard(student_id, student_name):
     filter_frame = tk.Frame(marks_tab, bg="#f6f8fa")
     filter_frame.pack(pady=(10, 2), fill="x", padx=10)
     tk.Label(filter_frame, text="Filtrează după materie:", bg="#f6f8fa",
-             font=("Segoe UI", 10)).pack(side="left", padx=(0,4))
+             font=("Segoe UI", 10)).pack(side="left", padx=(0, 4))
     materie_combo = ttk.Combobox(filter_frame, state="readonly", values=materii)
     materie_combo.current(0)
     materie_combo.pack(side="left")
 
-    # --- TAB NOTE: scrollable Treeview ---
+    # Treeview
     tree_frame = tk.Frame(marks_tab, bg="#f6f8fa")
     tree_frame.pack(fill="both", expand=True, pady=10, padx=10)
 
-    # create the Treeview
     marks_tree = ttk.Treeview(tree_frame, columns=("subject", "date", "grade"), show="headings")
-    for col, txt, w in [("subject","Materie",150), ("date","Dată",110), ("grade","Notă",70)]:
+    for col, txt, w in [("subject", "Materie", 150), ("date", "Dată", 110), ("grade", "Notă", 70)]:
         marks_tree.heading(col, text=txt)
-        marks_tree.column(col, width=w, anchor="center" if col!="subject" else "w")
+        marks_tree.column(col, width=w, anchor="center" if col != "subject" else "w")
 
-    # create vertical scrollbar
     vsb = ttk.Scrollbar(tree_frame, orient="vertical", command=marks_tree.yview)
     marks_tree.configure(yscrollcommand=vsb.set)
-
-    # layout with grid so they expand together
     marks_tree.grid(row=0, column=0, sticky="nsew")
     vsb.grid(row=0, column=1, sticky="ns")
     tree_frame.rowconfigure(0, weight=1)
     tree_frame.columnconfigure(0, weight=1)
 
-    # --- Average text below the tree ---
-    avg_text = tk.Text(marks_tab, height=4, width=50, font=("Segoe UI", 10), bg="#eaf2fa")
-    avg_text.pack(pady=(0,10))
+    # TWO AVG BOXES: left = purtare + generală, right = detalii pe materii
+    avg_frame = tk.Frame(marks_tab, bg="#f6f8fa")
+    avg_frame.pack(pady=(0, 10))
+    left_avg_text = tk.Text(avg_frame, height=4, width=35, font=("Segoe UI", 10), bg="#eaf2fa")
+    left_avg_text.pack(side="left", padx=(4, 10))
+    right_avg_text = tk.Text(avg_frame, height=8, width=45, font=("Segoe UI", 10), bg="#eaf2fa")
+    right_avg_text.pack(side="left", padx=(10, 4))
 
-    # now that marks_tree exists, bind the filter callback
+    # Combo filter
     materie_combo.bind(
         "<<ComboboxSelected>>",
-        lambda e: load_marks_filtered(student_id, marks_tree, avg_text, materie_combo.get())
+        lambda e: load_marks_filtered(student_id, marks_tree, left_avg_text, right_avg_text, materie_combo.get())
     )
 
-    # initial load
-    load_marks(student_id, marks_tree, avg_text)
+    # Initial load
+    load_marks(student_id, marks_tree, left_avg_text, right_avg_text)
 
-    # --- TAB ABSENȚE remains unchanged ---
+    # Attendance TAB
     att_tree = ttk.Treeview(att_tab, columns=("date", "subject"), show="headings")
     att_tree.heading("date", text="Data absenței")
     att_tree.heading("subject", text="Materie")
@@ -138,56 +138,57 @@ def open_dashboard(student_id, student_name):
     dash.mainloop()
 
 
-def load_marks(student_id, tree, avg_box):
+def load_marks(student_id, tree, left_box, right_box):
     db = connect_db()
     cur = db.cursor()
-    # 1) Fetch all grades as before
+
+    # 1. Obține toate notele
     cur.execute("""
-                SELECT subject, grade, date_given
-                FROM grades
-                WHERE student_id = %s
-                ORDER BY subject, date_given
-                """, (student_id,))
+        SELECT subject, grade, date_given
+        FROM grades
+        WHERE student_id = %s
+        ORDER BY subject, date_given
+    """, (student_id,))
     rows = cur.fetchall()
-    # 2) Fetch conduct grade (default to 10 if none)
-    cur.execute("""
-                SELECT grade
-                FROM conduct_grades
-                WHERE student_id = %s
-                """, (student_id,))
+
+    # 2. Media la purtare
+    cur.execute("SELECT grade FROM conduct_grades WHERE student_id = %s", (student_id,))
     res = cur.fetchone()
     conduct_grades = res[0] if res and res[0] is not None else 10.0
     db.close()
 
-    # 3) Populate the tree
+    # 3. Populate treeview
     tree.delete(*tree.get_children())
     subjects = {}
-    total_all = []
+    all_grades = []
+
     for subj, grade, date in rows:
         tree.insert("", "end", values=(subj, date.strftime("%d.%m.%Y"), grade))
         subjects.setdefault(subj, []).append(grade)
-        total_all.append(grade)
+        all_grades.append(grade)
 
-    # 4) Write out the averages
-    avg_box.config(state=tk.NORMAL)
-    avg_box.delete("1.0", tk.END)
-
-    if not rows:
-        avg_box.insert(tk.END, "Nicio notă momentan.\n")
+    # === LEFT BOX ===
+    left_box.config(state=tk.NORMAL)
+    left_box.delete("1.0", tk.END)
+    left_box.insert(tk.END, f"Media la purtare: {conduct_grades:.2f}\n")
+    if all_grades:
+        general_avg = sum(all_grades) / len(all_grades)
+        left_box.insert(tk.END, f"Media generală: {general_avg:.2f}")
     else:
-        # per-subject averages
+        left_box.insert(tk.END, "Media generală: -")
+    left_box.config(state=tk.DISABLED)
+
+    # === RIGHT BOX ===
+    right_box.config(state=tk.NORMAL)
+    right_box.delete("1.0", tk.END)
+    if not rows:
+        right_box.insert(tk.END, "Nicio notă momentan.")
+    else:
         for subj, grades in subjects.items():
             avg = sum(grades) / len(grades)
-            avg_box.insert(tk.END, f"Media la {subj}: {avg:.2f}\n")
+            right_box.insert(tk.END, f"Media la {subj}: {avg:.2f}\n")
+    right_box.config(state=tk.DISABLED)
 
-        # conduct average, above the general average
-        avg_box.insert(tk.END, f"\nMedia la purtare: {conduct_grades:.2f}\n")
-
-        # overall average
-        general_avg = sum(total_all) / len(total_all)
-        avg_box.insert(tk.END, f"\nMedia generală: {general_avg:.2f}")
-
-    avg_box.config(state=tk.DISABLED)
 
 def load_attendance(student_id, tree):
     db = connect_db()
@@ -423,60 +424,74 @@ def open_absence_request_form(student_id):
     tk.Button(win, text="Trimite cererea", command=submit_request, bg="#344675", fg="white",
               font=("Segoe UI", 10, "bold")).pack(pady=14)
 
-def load_marks_filtered(student_id, tree, avg_box, filter_subject=None):
+def load_marks_filtered(student_id, tree, left_box, right_box, filter_subject=None):
     db = connect_db()
     cur = db.cursor()
 
     if filter_subject and filter_subject != "Toate materiile":
         cur.execute("""
-                    SELECT subject, grade, date_given
-                    FROM grades
-                    WHERE student_id=%s AND subject=%s
-                    ORDER BY subject, date_given
-                    """, (student_id, filter_subject))
+            SELECT subject, grade, date_given
+            FROM grades
+            WHERE student_id=%s AND subject=%s
+            ORDER BY subject, date_given
+        """, (student_id, filter_subject))
     else:
         cur.execute("""
-                    SELECT subject, grade, date_given
-                    FROM grades
-                    WHERE student_id=%s
-                    ORDER BY subject, date_given
-                    """, (student_id,))
-
+            SELECT subject, grade, date_given
+            FROM grades
+            WHERE student_id=%s
+            ORDER BY subject, date_given
+        """, (student_id,))
     rows = cur.fetchall()
+
+    # Media la purtare
+    cur.execute("SELECT grade FROM conduct_grades WHERE student_id=%s", (student_id,))
+    r = cur.fetchone()
+    conduct = r[0] if r else 10.0
     db.close()
+
     tree.delete(*tree.get_children())
     subjects = {}
+    all_grades = []
 
     for subj, grade, date in rows:
         tree.insert("", "end", values=(subj, date.strftime("%d.%m.%Y"), grade))
         subjects.setdefault(subj, []).append(grade)
+        all_grades.append(grade)
 
-    avg_box.config(state=tk.NORMAL)
-    avg_box.delete("1.0", tk.END)
+    # === LEFT BOX ===
+    left_box.config(state=tk.NORMAL)
+    left_box.delete("1.0", tk.END)
+    left_box.insert(tk.END, f"Media la purtare: {conduct:.2f}\n")
+
+    if filter_subject == "Toate materiile" and all_grades:
+        gen = sum(all_grades) / len(all_grades)
+        left_box.insert(tk.END, f"Media generală: {gen:.2f}")
+    elif filter_subject == "Toate materiile":
+        left_box.insert(tk.END, "Media generală: -")
+
+    left_box.config(state=tk.DISABLED)
+
+    # === RIGHT BOX ===
+    right_box.config(state=tk.NORMAL)
+    right_box.delete("1.0", tk.END)
+
     if not rows:
-        avg_box.insert(tk.END, "Nicio notă momentan.")
+        right_box.insert(tk.END, "Nicio notă momentan.")
+    elif filter_subject and filter_subject != "Toate materiile":
+        grades = subjects.get(filter_subject, [])
+        if grades:
+            avg = sum(grades) / len(grades)
+            right_box.insert(tk.END, f"Media la {filter_subject}: {avg:.2f}")
+        else:
+            right_box.insert(tk.END, f"Nicio notă la {filter_subject}.")
     else:
         for subj, grades in subjects.items():
             avg = sum(grades) / len(grades)
-            avg_box.insert(tk.END, f"Media la {subj}: {avg:.2f}\n")
+            right_box.insert(tk.END, f"Media la {subj}: {avg:.2f}\n")
 
-    db = connect_db(); cur = db.cursor()
-    cur.execute("SELECT grade FROM conduct_grades WHERE student_id=%s", (student_id,))
-    r = cur.fetchone()
-    conduct = r[0] if r else 10.0
+    right_box.config(state=tk.DISABLED)
 
-    # collect a flat list of all grades for general avg
-    all_grades = [g for grades in subjects.values() for g in grades]
-    db.close()
-
-    avg_box.insert(tk.END, f"\nMedia la purtare: {conduct:.2f}\n")
-    if all_grades:
-        gen = sum(all_grades)/len(all_grades)
-        avg_box.insert(tk.END, f"\nMedia generală: {gen:.2f}")
-    else:
-        avg_box.insert(tk.END, "\nNicio notă academică momentan.")
-
-    avg_box.config(state=tk.DISABLED)
 
 root = tk.Tk()
 root.title("Autentificare Elev")

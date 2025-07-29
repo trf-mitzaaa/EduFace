@@ -98,26 +98,28 @@ def manage_conduct_ui():
     win.configure(bg="#f0f6fa")
 
     # ——— Clasă selector ———
-    tk.Label(win, text="Selectează clasa:", bg="#f0f6fa", font=("Segoe UI", 11)).pack(pady=(10,4))
+    tk.Label(win, text="Selectează clasa:", bg="#f0f6fa", font=("Segoe UI", 11)).pack(pady=(10, 4))
     class_combo = ttk.Combobox(win, state="readonly", width=30)
-    class_combo.pack(pady=(0,10))
+    class_combo.pack(pady=(0, 10))
 
     # load lista de clase din DB
-    db = connect_db(); cur = db.cursor()
+    db = connect_db();
+    cur = db.cursor()
     cur.execute("SELECT id, name FROM classes ORDER BY name")
     classes = cur.fetchall()
-    cur.close(); db.close()
-    class_combo['values'] = [f"{cid} - {cname}" for cid,cname in classes]
+    cur.close();
+    db.close()
+    class_combo['values'] = [f"{cid} - {cname}" for cid, cname in classes]
 
     # ——— Treeview pentru note purtare ———
-    tree = ttk.Treeview(win, columns=("id","nume","grade"), show="headings", height=15)
-    tree.heading("id",    text="ID")
-    tree.heading("nume",  text="Elev")
+    tree = ttk.Treeview(win, columns=("id", "nume", "grade"), show="headings", height=15)
+    tree.heading("id", text="ID")
+    tree.heading("nume", text="Elev")
     tree.heading("grade", text="Nota de purtare")
-    tree.column("id",    width=40, anchor="center")
-    tree.column("nume",  width=200)
+    tree.column("id", width=40, anchor="center")
+    tree.column("nume", width=200)
     tree.column("grade", width=120, anchor="center")
-    tree.pack(fill=tk.BOTH, expand=True, padx=8, pady=(0,8))
+    tree.pack(fill=tk.BOTH, expand=True, padx=8, pady=(0, 8))
 
     def load_grades():
         # golim orice rând vechi
@@ -126,7 +128,8 @@ def manage_conduct_ui():
         if not sel:
             return
         cls_id = sel.split(" - ")[0]
-        db = connect_db(); cur = db.cursor()
+        db = connect_db();
+        cur = db.cursor()
         cur.execute("""
             SELECT s.id,
                    CONCAT(s.first_name,' ',s.last_name),
@@ -138,7 +141,8 @@ def manage_conduct_ui():
         """, (cls_id,))
         for sid, nume, sc in cur.fetchall():
             tree.insert("", "end", values=(sid, nume, sc))
-        cur.close(); db.close()
+        cur.close();
+        db.close()
 
     def on_double_click(event):
         item = tree.identify_row(event.y)
@@ -160,13 +164,16 @@ def manage_conduct_ui():
         if nou is None:
             return
 
-        db = connect_db(); cur = db.cursor()
+        db = connect_db();
+        cur = db.cursor()
         cur.execute("""
             INSERT INTO conduct_grades(student_id, grade)
             VALUES (%s, %s)
             ON DUPLICATE KEY UPDATE grade=%s
         """, (sid, nou, nou))
-        db.commit(); cur.close(); db.close()
+        db.commit();
+        cur.close();
+        db.close()
 
         tree.set(item, "grade", nou)
 
@@ -175,7 +182,7 @@ def manage_conduct_ui():
     tree.bind("<Double-1>", on_double_click)
 
     # buton de reload manual
-    tk.Button(win, text="Reîncarcă", command=load_grades, bg="#344675", fg="white").pack(pady=(0,8))
+    tk.Button(win, text="Reîncarcă", command=load_grades, bg="#344675", fg="white").pack(pady=(0, 8))
 
     win.transient(root)  # dacă vrei să modalați față de fereastra principală
     win.grab_set()
@@ -288,7 +295,7 @@ def open_dashboard():
 def delete_user_ui():
     win = tk.Toplevel()
     win.title("Șterge Utilizator")
-    win.geometry("450x200")
+    win.geometry("450x240")
     win.configure(bg="#f0f6fa")
 
     tk.Label(win, text="Selectează utilizatorul de șters:", bg="#f0f6fa").pack(pady=(14, 6))
@@ -299,16 +306,15 @@ def delete_user_ui():
     db = connect_db()
     cur = db.cursor()
     cur.execute("""
-                SELECT u.id,
-                       u.username,
-                       COALESCE(s.first_name, t.first_name, h.first_name, '-') AS first,
+        SELECT u.id,
+               u.username,
+               COALESCE(s.first_name, t.first_name, h.first_name, '-') AS first,
                COALESCE(s.last_name,  t.last_name,  h.last_name,  '-') AS last
-                FROM users u
-                    LEFT JOIN students s
-                ON u.id = s.user_id
-                    LEFT JOIN teachers t ON u.id = t.id
-                    LEFT JOIN head_teachers h ON u.id = h.id
-                """)
+        FROM users u
+        LEFT JOIN students s ON u.id = s.user_id
+        LEFT JOIN teachers t ON u.id = t.id
+        LEFT JOIN head_teachers h ON u.id = h.id
+    """)
     rows = cur.fetchall()
     db.close()
 
@@ -330,6 +336,15 @@ def delete_user_ui():
         db = connect_db()
         cur = db.cursor()
         try:
+            # Obține id-ul elevului, dacă există
+            cur.execute("SELECT id FROM students WHERE user_id=%s", (uid,))
+            elev = cur.fetchone()
+            if elev:
+                sid = elev[0]
+                cur.execute("DELETE FROM grades             WHERE student_id=%s", (sid,))
+                cur.execute("DELETE FROM attendance_history WHERE student_id=%s", (sid,))
+                cur.execute("DELETE FROM attendance_current WHERE student_id=%s", (sid,))
+
             # Ștergem toate rolurile și notificările
             cur.execute("DELETE FROM user_roles      WHERE user_id=%s", (uid,))
             cur.execute("DELETE FROM notifications   WHERE user_id=%s", (uid,))
@@ -344,7 +359,7 @@ def delete_user_ui():
             cur.execute("DELETE FROM users            WHERE id=%s", (uid,))
 
             db.commit()
-            messagebox.showinfo("Succes", f"Utilizatorul {sel} a fost șters.")
+            messagebox.showinfo("Succes", f"Utilizatorul {sel} a fost șters complet.")
             win.destroy()
 
         except Exception as e:
@@ -354,8 +369,8 @@ def delete_user_ui():
             cur.close()
             db.close()
 
-    tk.Button(win, text="Șterge", command=delete_user, bg="#b0413e", fg="white", font=("Segoe UI", 11, "bold")).pack(
-        pady=10)
+    tk.Button(win, text="Șterge", command=delete_user, bg="#b0413e", fg="white", font=("Segoe UI", 11, "bold")).pack(pady=14)
+
 
 
 # --- Add Student ---
@@ -651,7 +666,7 @@ def add_head_teacher_ui():
 
     win = tk.Toplevel()
     win.title("Adaugă Diriginte")
-    win.geometry("400x220")
+    win.geometry("400x300")
     win.configure(bg="#f0f6fa")
     tk.Label(win, text="Utilizator", bg="#f0f6fa").grid(row=0, column=0, padx=6, pady=8, sticky="e")
     username = tk.Entry(win)
@@ -973,161 +988,216 @@ def remove_subject_ui():
 
 
 def delete_grade_ui():
-    def load_subjects():
-        db = connect_db();
-        cursor = db.cursor()
-        cursor.execute("SELECT DISTINCT subject FROM grades")
-        subjects = [row[0] for row in cursor.fetchall()]
-        db.close()
-        subject_combo["values"] = subjects
+    win = tk.Toplevel()
+    win.title("Șterge Notă")
+    win.geometry("520x280")
+    win.configure(bg="#f0f6fa")
 
-    def load_students(event=None):
-        subject = subject_combo.get()
-        if not subject:
+    # === Dropdown Clasă ===
+    tk.Label(win, text="Clasă:", bg="#f0f6fa").grid(row=0, column=0, padx=8, pady=8, sticky="e")
+    class_combo = ttk.Combobox(win, state="readonly", width=35)
+    class_combo.grid(row=0, column=1, padx=6, pady=8)
+
+    # === Dropdown Materie ===
+    tk.Label(win, text="Materie:", bg="#f0f6fa").grid(row=1, column=0, padx=8, pady=8, sticky="e")
+    subject_combo = ttk.Combobox(win, state="readonly", width=35)
+    subject_combo.grid(row=1, column=1, padx=6, pady=8)
+
+    # === Dropdown Elev ===
+    tk.Label(win, text="Elev:", bg="#f0f6fa").grid(row=2, column=0, padx=8, pady=8, sticky="e")
+    student_combo = ttk.Combobox(win, state="readonly", width=35)
+    student_combo.grid(row=2, column=1, padx=6, pady=8)
+
+    # === Dropdown Notă ===
+    tk.Label(win, text="Notă:", bg="#f0f6fa").grid(row=3, column=0, padx=8, pady=8, sticky="e")
+    grade_combo = ttk.Combobox(win, state="readonly", width=35)
+    grade_combo.grid(row=3, column=1, padx=6, pady=8)
+
+    # === Încărcare clase & materii ===
+    db = connect_db(); cur = db.cursor()
+    cur.execute("SELECT id, name FROM classes ORDER BY name")
+    class_data = cur.fetchall()
+    class_map = {name: cid for cid, name in class_data}
+    class_combo["values"] = list(class_map.keys())
+
+    cur.execute("SELECT DISTINCT subject FROM grades ORDER BY subject")
+    subject_combo["values"] = [row[0] for row in cur.fetchall()]
+    db.close()
+
+    # === Evenimente ===
+    def load_students(*_):
+        cls = class_combo.get()
+        sub = subject_combo.get()
+        if not cls or not sub:
+            student_combo["values"] = []
+            grade_combo["values"] = []
             return
-        db = connect_db();
-        cursor = db.cursor()
-        cursor.execute("""
-                       SELECT DISTINCT s.id, s.first_name, s.last_name, c.name
-                       FROM grades g
-                                JOIN students s ON g.student_id = s.id
-                                JOIN classes c ON s.class_id = c.id
-                       WHERE g.subject = %s
-                       ORDER BY c.name, s.last_name
-                       """, (subject,))
-        students = cursor.fetchall();
-        db.close()
-        student_combo["values"] = [f"{sid} - {first} {last} [{cls}]" for sid, first, last, cls in students]
-        grade_combo.set("")
+
+        cid = class_map.get(cls)
+        db2 = connect_db(); c2 = db2.cursor()
+        c2.execute("""
+            SELECT DISTINCT s.id, s.first_name, s.last_name
+            FROM students s
+            JOIN grades g ON g.student_id = s.id
+            WHERE s.class_id = %s AND g.subject = %s
+            ORDER BY s.last_name
+        """, (cid, sub))
+        elevi = c2.fetchall()
+        db2.close()
+        student_combo["values"] = [f"{sid} - {fn} {ln}" for sid, fn, ln in elevi]
         grade_combo["values"] = []
 
-    def load_grades(event=None):
-        if not subject_combo.get() or not student_combo.get():
+    def load_grades(*_):
+        sel = student_combo.get()
+        sub = subject_combo.get()
+        if not sel or not sub:
+            grade_combo["values"] = []
             return
-        subject = subject_combo.get()
-        student_id = int(student_combo.get().split(" - ")[0])
-        db = connect_db();
-        cursor = db.cursor()
-        cursor.execute("SELECT id, grade, date_given FROM grades WHERE student_id = %s AND subject = %s",
-                       (student_id, subject))
-        grades = cursor.fetchall();
-        db.close()
-        grade_combo["values"] = [
-            f"{gid} - {grade} ({date.strftime('%d.%m.%Y')})" for gid, grade, date in grades
-        ]
 
-    def submit():
-        if not grade_combo.get():
-            messagebox.showerror("Eroare", "Selectează o notă pentru ștergere.")
+        sid = int(sel.split(" - ")[0])
+        db3 = connect_db(); c3 = db3.cursor()
+        c3.execute("""
+            SELECT id, grade, date_given
+            FROM grades
+            WHERE student_id = %s AND subject = %s
+            ORDER BY date_given
+        """, (sid, sub))
+        note = c3.fetchall()
+        db3.close()
+        grade_combo["values"] = [f"{nid} - {g} ({d.strftime('%d.%m.%Y')})" for nid, g, d in note]
+
+    def delete_grade():
+        sel = grade_combo.get()
+        if not sel:
+            messagebox.showerror("Eroare", "Selectează nota de șters.")
             return
-        grade_id = int(grade_combo.get().split(" - ")[0])
-        db = connect_db();
-        cursor = db.cursor()
+        grade_id = int(sel.split(" - ")[0])
+        db4 = connect_db(); c4 = db4.cursor()
         try:
-            cursor.execute("DELETE FROM grades WHERE id = %s", (grade_id,))
-            db.commit()
+            c4.execute("DELETE FROM grades WHERE id = %s", (grade_id,))
+            db4.commit()
             messagebox.showinfo("Succes", "Nota a fost ștearsă.")
             win.destroy()
         except Exception as e:
             messagebox.showerror("Eroare", str(e))
-        db.close()
+            db4.rollback()
+        db4.close()
 
-    win = tk.Toplevel()
-    win.title("Șterge Notă")
-    win.geometry("470x230")
-    win.configure(bg="#f0f6fa")
-    tk.Label(win, text="Materie", bg="#f0f6fa").grid(row=0, column=0, padx=6, pady=8, sticky="e")
-    subject_combo = ttk.Combobox(win, state="readonly", width=32)
-    subject_combo.grid(row=0, column=1, padx=6, pady=8)
-    tk.Label(win, text="Elev", bg="#f0f6fa").grid(row=1, column=0, padx=6, pady=8, sticky="e")
-    student_combo = ttk.Combobox(win, state="readonly", width=32)
-    student_combo.grid(row=1, column=1, padx=6, pady=8)
-    tk.Label(win, text="Notă", bg="#f0f6fa").grid(row=2, column=0, padx=6, pady=8, sticky="e")
-    grade_combo = ttk.Combobox(win, state="readonly", width=32)
-    grade_combo.grid(row=2, column=1, padx=6, pady=8)
-    tk.Button(win, text="Șterge", command=submit, bg="#c44536", fg="white").grid(row=3, columnspan=2, pady=15)
-    load_subjects()
+    # === Legături evenimente ===
+    class_combo.bind("<<ComboboxSelected>>", load_students)
     subject_combo.bind("<<ComboboxSelected>>", load_students)
     student_combo.bind("<<ComboboxSelected>>", load_grades)
 
+    tk.Button(win, text="Șterge Notă", command=delete_grade, bg="#c44536", fg="white", font=("Segoe UI", 11, "bold")).grid(row=4, columnspan=2, pady=15)
+
 
 def delete_attendance_ui():
-    def load_subjects():
-        db = connect_db();
-        cursor = db.cursor()
-        cursor.execute("SELECT id, name FROM subjects")
-        subjects = cursor.fetchall()
-        db.close()
-        subject_combo["values"] = [f"{sid} - {name}" for sid, name in subjects]
+    win = tk.Toplevel()
+    win.title("Șterge Absență")
+    win.geometry("520x280")
+    win.configure(bg="#f0f6fa")
 
-    def load_students(event=None):
-        if not subject_combo.get():
+    # === Dropdown Clasă ===
+    tk.Label(win, text="Clasă:", bg="#f0f6fa").grid(row=0, column=0, padx=8, pady=8, sticky="e")
+    class_combo = ttk.Combobox(win, state="readonly", width=35)
+    class_combo.grid(row=0, column=1, padx=6, pady=8)
+
+    # === Dropdown Materie ===
+    tk.Label(win, text="Materie:", bg="#f0f6fa").grid(row=1, column=0, padx=8, pady=8, sticky="e")
+    subject_combo = ttk.Combobox(win, state="readonly", width=35)
+    subject_combo.grid(row=1, column=1, padx=6, pady=8)
+
+    # === Dropdown Elev ===
+    tk.Label(win, text="Elev:", bg="#f0f6fa").grid(row=2, column=0, padx=8, pady=8, sticky="e")
+    student_combo = ttk.Combobox(win, state="readonly", width=35)
+    student_combo.grid(row=2, column=1, padx=6, pady=8)
+
+    # === Dropdown Absență ===
+    tk.Label(win, text="Absență:", bg="#f0f6fa").grid(row=3, column=0, padx=8, pady=8, sticky="e")
+    attendance_combo = ttk.Combobox(win, state="readonly", width=35)
+    attendance_combo.grid(row=3, column=1, padx=6, pady=8)
+
+    # === Load clase & materii ===
+    db = connect_db(); cur = db.cursor()
+    cur.execute("SELECT id, name FROM classes ORDER BY name")
+    class_data = cur.fetchall()
+    class_map = {name: cid for cid, name in class_data}
+    class_combo["values"] = list(class_map.keys())
+
+    cur.execute("SELECT id, name FROM subjects ORDER BY name")
+    subjects = cur.fetchall()
+    subject_map = {name: sid for sid, name in subjects}
+    subject_combo["values"] = list(subject_map.keys())
+    db.close()
+
+    def load_students(*_):
+        cls = class_combo.get()
+        sub = subject_combo.get()
+        if not cls or not sub:
+            student_combo["values"] = []
+            attendance_combo["values"] = []
             return
-        subject_id = int(subject_combo.get().split(" - ")[0])
-        db = connect_db();
-        cursor = db.cursor()
-        cursor.execute("""
-                       SELECT DISTINCT s.id, s.first_name, s.last_name, c.name
-                       FROM attendance_history ah
-                                JOIN students s ON ah.student_id = s.id
-                                JOIN classes c ON s.class_id = c.id
-                       WHERE ah.subject_id = %s
-                       ORDER BY c.name, s.last_name
-                       """, (subject_id,))
-        students = cursor.fetchall();
-        db.close()
-        student_combo["values"] = [f"{sid} - {first} {last} [{cls}]" for sid, first, last, cls in students]
-        attendance_combo.set("")
+
+        cid = class_map.get(cls)
+        sid = subject_map.get(sub)
+
+        db2 = connect_db(); c2 = db2.cursor()
+        c2.execute("""
+            SELECT DISTINCT s.id, s.first_name, s.last_name
+            FROM students s
+            JOIN attendance_history a ON a.student_id = s.id
+            WHERE s.class_id = %s AND a.subject_id = %s
+            ORDER BY s.last_name
+        """, (cid, sid))
+        elevi = c2.fetchall()
+        db2.close()
+        student_combo["values"] = [f"{sid} - {fn} {ln}" for sid, fn, ln in elevi]
         attendance_combo["values"] = []
 
-    def load_attendance(event=None):
-        if not subject_combo.get() or not student_combo.get():
+    def load_attendance(*_):
+        sel = student_combo.get()
+        sub = subject_combo.get()
+        if not sel or not sub:
+            attendance_combo["values"] = []
             return
-        subject_id = int(subject_combo.get().split(" - ")[0])
-        student_id = int(student_combo.get().split(" - ")[0])
-        db = connect_db();
-        cursor = db.cursor()
-        cursor.execute("SELECT id, absent_date FROM attendance_history WHERE student_id = %s AND subject_id = %s",
-                       (student_id, subject_id))
-        recs = cursor.fetchall();
-        db.close()
-        attendance_combo["values"] = [
-            f"{aid} - {date.strftime('%d.%m.%Y')}" for aid, date in recs
-        ]
 
-    def submit():
-        if not attendance_combo.get():
-            messagebox.showerror("Eroare", "Selectează o absență pentru ștergere.")
+        student_id = int(sel.split(" - ")[0])
+        subject_id = subject_map.get(sub)
+
+        db3 = connect_db(); c3 = db3.cursor()
+        c3.execute("""
+            SELECT id, absent_date
+            FROM attendance_history
+            WHERE student_id = %s AND subject_id = %s
+            ORDER BY absent_date
+        """, (student_id, subject_id))
+        absente = c3.fetchall()
+        db3.close()
+        attendance_combo["values"] = [f"{aid} - {d.strftime('%d.%m.%Y')}" for aid, d in absente]
+
+    def delete_attendance():
+        sel = attendance_combo.get()
+        if not sel:
+            messagebox.showerror("Eroare", "Selectează o absență de șters.")
             return
-        aid = int(attendance_combo.get().split(" - ")[0])
-        db = connect_db();
-        cursor = db.cursor()
+        aid = int(sel.split(" - ")[0])
+        db4 = connect_db(); c4 = db4.cursor()
         try:
-            cursor.execute("DELETE FROM attendance_history WHERE id = %s", (aid,))
-            db.commit()
+            c4.execute("DELETE FROM attendance_history WHERE id = %s", (aid,))
+            db4.commit()
             messagebox.showinfo("Succes", "Absența a fost ștearsă.")
             win.destroy()
         except Exception as e:
             messagebox.showerror("Eroare", str(e))
-        db.close()
+            db4.rollback()
+        db4.close()
 
-    win = tk.Toplevel()
-    win.title("Șterge Absență")
-    win.geometry("470x230")
-    win.configure(bg="#f0f6fa")
-    tk.Label(win, text="Materie", bg="#f0f6fa").grid(row=0, column=0, padx=6, pady=8, sticky="e")
-    subject_combo = ttk.Combobox(win, state="readonly", width=32)
-    subject_combo.grid(row=0, column=1, padx=6, pady=8)
-    tk.Label(win, text="Elev", bg="#f0f6fa").grid(row=1, column=0, padx=6, pady=8, sticky="e")
-    student_combo = ttk.Combobox(win, state="readonly", width=32)
-    student_combo.grid(row=1, column=1, padx=6, pady=8)
-    tk.Label(win, text="Absență", bg="#f0f6fa").grid(row=2, column=0, padx=6, pady=8, sticky="e")
-    attendance_combo = ttk.Combobox(win, state="readonly", width=32)
-    attendance_combo.grid(row=2, column=1, padx=6, pady=8)
-    tk.Button(win, text="Șterge", command=submit, bg="#c44536", fg="white").grid(row=3, columnspan=2, pady=15)
-    load_subjects()
+    # === Bindings ===
+    class_combo.bind("<<ComboboxSelected>>", load_students)
     subject_combo.bind("<<ComboboxSelected>>", load_students)
     student_combo.bind("<<ComboboxSelected>>", load_attendance)
+
+    tk.Button(win, text="Șterge Absență", command=delete_attendance, bg="#c44536", fg="white", font=("Segoe UI", 11, "bold")).grid(row=4, columnspan=2, pady=15)
 
 
 def view_class_marksheet_ui():
@@ -1209,15 +1279,14 @@ def confirm_and_promote():
     if result:
         promote_all_students()
 
-
 def promote_all_students():
     db = connect_db()
     cursor = db.cursor()
     try:
-
         cursor.execute("SELECT id, name FROM classes")
         classes = cursor.fetchall()
 
+        # === 1. Identificare clase lipsă
         missing = set()
         for class_id, name in classes:
             clean = name.strip().replace(" ", "").upper()
@@ -1243,6 +1312,7 @@ def promote_all_students():
                 cursor.execute("INSERT INTO classes (name) VALUES (%s)", (cname,))
             db.commit()
 
+        # === 2. Promovare clase 9–11
         for class_id, name in classes:
             clean = name.strip().replace(" ", "").upper()
             m = re.match(r"^(9|10|11)([A-Z])$", clean)
@@ -1250,39 +1320,90 @@ def promote_all_students():
                 continue
             year, letter = int(m.group(1)), m.group(2)
             next_name = f"{year + 1}{letter}"
-            # obținem ID-ul noii clase (acum sigur există)
             cursor.execute("SELECT id FROM classes WHERE name=%s", (next_name,))
             next_id = cursor.fetchone()[0]
 
             cursor.execute("SELECT id FROM students WHERE class_id=%s", (class_id,))
             studs = cursor.fetchall()
-            for (sid,) in studs:
-                cursor.execute("SELECT AVG(grade) FROM grades WHERE student_id=%s", (sid,))
-                avg = cursor.fetchone()[0] or 0.0
-                if avg >= 5.0:
-                    cursor.execute(
-                        "UPDATE students SET class_id=%s WHERE id=%s",
-                        (next_id, sid)
-                    )
 
+            for (sid,) in studs:
+                # Verificare promovabilitate
+                cursor.execute("SELECT AVG(grade) FROM grades WHERE student_id=%s", (sid,))
+                avg = cursor.fetchone()[0]
+                is_promoted = False
+
+                if avg is not None and avg >= 5.0:
+                    cursor.execute("""
+                        SELECT 1 FROM grades
+                        WHERE student_id=%s
+                        GROUP BY subject
+                        HAVING AVG(grade) < 4.5
+                    """, (sid,))
+                    if not cursor.fetchone():
+                        is_promoted = True
+
+                if is_promoted:
+                    cursor.execute("UPDATE students SET class_id=%s WHERE id=%s", (next_id, sid))
+
+                # Curățare date anterioare
                 cursor.execute("DELETE FROM grades WHERE student_id=%s", (sid,))
                 cursor.execute("DELETE FROM attendance_history WHERE student_id=%s", (sid,))
                 cursor.execute("DELETE FROM attendance_current WHERE student_id=%s", (sid,))
-                cursor.execute(
-                    "INSERT INTO attendance_current (student_id, present) VALUES (%s, 0)",
-                    (sid,)
-                )
+                cursor.execute("INSERT INTO attendance_current (student_id, present) VALUES (%s, 0)", (sid,))
+
+        # === 3. Procesare clasa a XII-a
+        cursor.execute("""
+            SELECT s.id, s.user_id
+            FROM students s
+            JOIN classes c ON s.class_id = c.id
+            WHERE c.name REGEXP '^12[A-Z]$'
+        """)
+        twelve_students = cursor.fetchall()
+
+        for sid, uid in twelve_students:
+            # Media generală
+            cursor.execute("SELECT AVG(grade) FROM grades WHERE student_id=%s", (sid,))
+            gen_avg = cursor.fetchone()[0]
+
+            # Mediile pe materii
+            cursor.execute("""
+                SELECT AVG(grade) FROM grades
+                WHERE student_id=%s
+                GROUP BY subject
+                HAVING AVG(grade) < 4.5
+            """, (sid,))
+            are_sub450 = cursor.fetchone() is not None
+
+            if gen_avg is not None and gen_avg >= 5.0 and not are_sub450:
+                # Absolvent ⇒ ștergem complet
+                cursor.execute("DELETE FROM grades WHERE student_id=%s", (sid,))
+                cursor.execute("DELETE FROM attendance_history WHERE student_id=%s", (sid,))
+                cursor.execute("DELETE FROM attendance_current WHERE student_id=%s", (sid,))
+                cursor.execute("DELETE FROM conduct_grades WHERE student_id=%s", (sid,))
+                cursor.execute("DELETE FROM absence_requests WHERE student_id=%s", (sid,))
+                cursor.execute("DELETE FROM students WHERE id=%s", (sid,))
+                if uid:
+                    cursor.execute("DELETE FROM user_roles WHERE user_id=%s", (uid,))
+                    cursor.execute("DELETE FROM notifications WHERE user_id=%s", (uid,))
+                    cursor.execute("DELETE FROM users WHERE id=%s", (uid,))
+            else:
+                # Repetent ⇒ ștergem doar datele
+                cursor.execute("DELETE FROM grades WHERE student_id=%s", (sid,))
+                cursor.execute("DELETE FROM attendance_history WHERE student_id=%s", (sid,))
+                cursor.execute("DELETE FROM attendance_current WHERE student_id=%s", (sid,))
+                cursor.execute("DELETE FROM conduct_grades WHERE student_id=%s", (sid,))
+                cursor.execute("DELETE FROM absence_requests WHERE student_id=%s", (sid,))
+                cursor.execute("INSERT INTO attendance_current (student_id, present) VALUES (%s, 0)", (sid,))
 
         db.commit()
-        messagebox.showinfo("Promovare finalizată", "⇨ Elevii au fost promovați şi catalogul a fost curățat.")
-
+        messagebox.showinfo("Promovare finalizată",
+                            "⇨ Elevii au fost procesați cu succes.\nPromovații au fost mutați, corigenții au rămas.\nElevii de clasa a 12-a au fost eliminați doar dacă au absolvit.")
     except Exception as e:
         db.rollback()
-        messagebox.showerror("Eroare critică", str(e))
+        messagebox.showerror("Eroare critică", f"A apărut o eroare:\n{e}")
     finally:
         cursor.close()
         db.close()
-
 
 # --- Fereastră de autentificare ---
 if __name__ == "__main__":
